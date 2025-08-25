@@ -4,111 +4,119 @@ from typing import List, Optional, Dict, Any
 from langchain.chat_models import init_chat_model
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
 import logging
-from datetime import datetime
+import time
 
-# Configuração de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 class FlashcardAI(BaseModel):
     """Modelo para um flashcard gerado pela IA"""
     front: str = Field(description="Pergunta ou conceito no front do flashcard")
     back: str = Field(description="Resposta ou explicação no verso do flashcard")
     difficulty: str = Field(description="Nível de dificuldade: beginner, intermediate, advanced")
-    tags: List[str] = Field(description="Tags para categorizar o flashcard", default=[])
-    explanation: Optional[str] = Field(description="Explicação adicional", default=None)
+    suggestions: Optional[str] = Field(description="Sugestão de estudo", default=None)
 
 class FlashcardsGeneration(BaseModel):
     """Modelo para múltiplos flashcards gerados pela IA"""
     flashcards: List[FlashcardAI] = Field(description="Lista de flashcards gerados")
 
-class AIServiceAdvanced:
-    """Serviço para integração com modelos de IA"""
-    
-    def __init__(self):
-        self.provider = os.getenv("AI_PROVIDER", "openai")
-        self.model_name = os.getenv("DEFAULT_MODEL", "gpt-3.5-turbo")
-        self.temperature = float(os.getenv("TEMPERATURE", "0.5"))
-        self.max_tokens = int(os.getenv("MAX_TOKENS", "1500"))
-        self.max_flashcards = int(os.getenv("MAX_FLASHCARDS_PER_REQUEST", "15"))
-        self.min_flashcards = int(os.getenv("MIN_FLASHCARDS_PER_REQUEST", "1"))
-        
-        # Inicializa o modelo
-        self.llm = self._initialize_model()
-        
-        # Configura o structured output
-        if self.llm:
-            self.structured_llm = self.llm.with_structured_output(FlashcardsGeneration)
-        else:
-            self.structured_llm = None
-        
+
+class AIService:
+    """Serviço para gerar flashcards com IA"""
+
     def _initialize_model(self):
         """Inicializa o modelo de IA baseado no provider configurado"""
         try:
             if self.provider == "openai":
-                api_key = os.getenv("OPENAI_API_KEY")
+                api_key = load_dotenv()
                 if not api_key:
                     raise ValueError("OPENAI_API_KEY não encontrada no arquivo .env")
                 
                 return init_chat_model(
-                    "gpt-3.5-turbo",  
+                    "gpt-4o-mini",  
                     model_provider="openai",
                     temperature=self.temperature,
                     max_tokens=self.max_tokens
                 )
-            else:
-                raise ValueError(f"Provider {self.provider} não suportado")
+            
+            raise ValueError(f"Provider {self.provider} não suportado")
                 
         except Exception as e:
             logger.error(f"Erro ao inicializar modelo: {e}")
             raise
     
-    def _create_prompt(self, topic: str, quantity: int, difficulty: str, 
-                      language: str, context: str = None, 
-                      focus_areas: List[str] = None) -> ChatPromptTemplate:
+    def __init__(self):
+        self.provider = os.getenv("AI_PROVIDER", "openai")
+        self.model_name = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
+        self.temperature = float(os.getenv("TEMPERATURE", "0.3"))
+        self.max_tokens = int(os.getenv("MAX_TOKENS", "1500"))
+        self.max_flashcards = int(os.getenv("MAX_FLASHCARDS_PER_REQUEST", "15"))
+        self.min_flashcards = int(os.getenv("MIN_FLASHCARDS_PER_REQUEST", "1"))
+
+        self.llm = self._initialize_model()
+
+        if self.llm:
+            self.structured_llm = self.llm.with_structured_output(FlashcardsGeneration)
+        else:
+            self.structured_llm = None
+
+    
+    def _create_prompt(self, topic: str, quantity: int, language: str) -> ChatPromptTemplate:
         """Cria o prompt otimizado para geração de flashcards"""
         
         # Mapeia códigos de idioma para nomes
         language_map = {
             "pt": "português brasileiro",
+            "en": "Inglês americano"
         }
         
         language_name = language_map.get(language, "português brasileiro")
         
-        # Instruções mais concisas por nível
-        difficulty_map = {
-            "beginner": "Use linguagem simples e conceitos básicos.",
-            "intermediate": "Use terminologia técnica apropriada com exemplos.",
-            "advanced": "Use conceitos complexos e terminologia avançada."
-        }
-        
-        # Constrói contexto de forma mais eficiente
-        context_parts = []
-        if context:
-            context_parts.append(f"Contexto: {context}")
-        if focus_areas:
-            context_parts.append(f"Foque em: {', '.join(focus_areas[:3])}")  # Limita a 3 áreas
-        
-        additional_context = f"\n{'. '.join(context_parts)}" if context_parts else ""
-        
-        # Template otimizado (mais conciso)
-        system_message = f"""Gere EXATAMENTE {quantity} flashcards sobre "{topic}" em {language_name}.
+        system_message = f"""
+Você é um especialista em educação. Gere EXATAMENTE 
 
-FORMATO OBRIGATÓRIO para cada flashcard:
-- Front: Pergunta clara (máx 150 chars)
-- Back: Resposta completa (máx 400 chars)  
-- Difficulty: {difficulty}
-- Tags: 2-3 palavras-chave
-- Explanation: Contexto adicional (máx 200 chars)
+Gere EXATAMENTE {quantity} flashcards sobre "{topic}" em {language_name}.
 
-REGRAS:
-- {difficulty_map.get(difficulty, '')}
-- Varie tipos: definições, comparações, aplicações
-- Seja educativo e preciso
-- Evite repetições{additional_context}
+FORMATO OBRIGATÓRIO (JSON estruturado em lista de objetos):
+[
+  {{{{  # duas chaves para escapar
+    "front": "Pergunta clara e objetiva (máx 150 chars, sem pontuação desnecessária)",
+    "back": "Resposta completa, didática e precisa (máx 400 chars, evitar redundância)",
+    "difficulty": "Fácil | Intermediário | Difícil",
+    "suggestion": "Sugestão breve e útil de estudo ou memorização (máx 200 chars)"
+  }}}}
+]
 
-RESPONDA APENAS COM O JSON ESTRUTURADO."""
+REGRAS E DIRETRIZES:
+1. Varie as dificuldades: pelo menos 30% Fácil, 40% Intermediário e 30% Difícil.
+2. Varie os tipos de flashcards:
+   - Definições (conceitos e termos)
+   - Comparações (semelhanças/diferenças)
+   - Aplicações (exemplos práticos, casos de uso, problemas)
+3. Seja educativo, preciso e confiável. Evite ambiguidades.
+4. Evite repetições de perguntas, respostas ou sugestões.
+5. A linguagem deve ser clara, objetiva e adequada para estudo individual.
+6. Não use listas, bullet points ou parágrafos longos nas respostas — apenas frases corridas.
+7. Todas as respostas devem estar no idioma solicitado: {language_name}.
+8. Garanta consistência no formato JSON: não inclua texto fora do JSON.
+9. Não invente informações falsas. Se não for aplicável ao tópico, não crie o flashcard.
+10. Certifique-se de que cada flashcard é autoexplicativo (não depende de outro para fazer sentido).
+11. "Fácil": "Use linguagem simples e conceitos básicos.",
+            "Intermediário": "Use terminologia técnica apropriada com exemplos.",
+            "Difícil": "Use conceitos complexos e terminologia avançada."
+
+REGRAS ANTI-ALUCINAÇÃO (OBRIGATÓRIAS):
+1) Use apenas fatos amplamente conhecidos e verificáveis.
+2) Evite números específicos, datas, estatísticas e nomes de funções/APIs pouco conhecidos.
+3) Se houver incerteza, responda de forma genérica porém correta (sem inventar detalhes).
+4) Para bibliotecas/tecnologias, foque em conceitos fundamentais e usos comuns.
+5) Não inclua nada fora do formato solicitado. Nenhum texto fora do JSON.
+
+RESPONDA SOMENTE COM O JSON, SEM EXPLICAÇÕES ADICIONAIS.
+"""
 
         human_message = f"Tópico: {topic}"
         
@@ -117,130 +125,51 @@ RESPONDA APENAS COM O JSON ESTRUTURADO."""
             ("human", human_message)
         ])
     
-    async def generate_flashcards(self, topic: str, quantity: int = 5, 
-                                difficulty: str = "intermediate", language: str = "pt",
-                                context: str = None, focus_areas: List[str] = None) -> dict:
-        """Gera flashcards usando IA com fallback e retry logic"""
-        
-        start_time = datetime.now()
-        
-        # Validações
-        if not self.structured_llm:
+    async def generate_flashcards(self, topic: str, quantity: int = 5, language: str = "pt") -> dict:
+        """Gera flashcards de forma simples, sem validações extras."""
+
+        # Cria o prompt
+        prompt = self._create_prompt(
+            topic=topic,
+            quantity=quantity,
+            language=language
+        )
+
+        # Cria a chain
+        chain = prompt | self.structured_llm
+
+        # Executa a geração
+        result = await chain.ainvoke({})
+
+        # Retorna direto os flashcards
+        return {
+            "flashcards": result.flashcards
+        }
+    async def generate_flashcards_with_metadata(self, topic: str, quantity: int = 5, language: str = "pt") -> dict:
+        """Gera flashcards com metadados para compatibilidade com FastAPI"""
+        try:
+            start_time = time.time()
+            
+            # Usar o método existente
+            result = await self.generate_flashcards(topic, quantity, language)
+            
+            end_time = time.time()
+            generation_time_ms = int((end_time - start_time) * 1000)
+            
+            return {
+                "success": True,
+                "flashcards": result["flashcards"],
+                "generation_time_ms": generation_time_ms,
+                "error": None
+            }
+            
+        except Exception as e:
             return {
                 "success": False,
-                "error": "Serviço de IA não configurado corretamente",
                 "flashcards": [],
-                "generation_time_ms": 0
+                "generation_time_ms": 0,
+                "error": str(e)
             }
-        
-        # Ajusta quantidade se necessário
-        original_quantity = quantity
-        quantity = max(self.min_flashcards, min(quantity, self.max_flashcards))
-        
-        if quantity != original_quantity:
-            logger.warning(f"Quantidade ajustada de {original_quantity} para {quantity}")
-        
-        # Tenta geração com estratégia de fallback
-        max_retries = 2
-        for attempt in range(max_retries + 1):
-            try:
-                logger.info(f"Tentativa {attempt + 1}: Gerando {quantity} flashcards sobre '{topic}' (dificuldade: {difficulty})")
-                
-                # Ajusta quantidade na última tentativa se falhou
-                if attempt == max_retries and quantity > 5:
-                    quantity = min(5, quantity)
-                    logger.info(f"Última tentativa: reduzindo para {quantity} flashcards")
-                
-                # Cria o prompt
-                prompt = self._create_prompt(
-                    topic=topic,
-                    quantity=quantity, 
-                    difficulty=difficulty,
-                    language=language,
-                    context=context,
-                    focus_areas=focus_areas
-                )
-                
-                # Cria a chain com structured output
-                chain = prompt | self.structured_llm
-                
-                # Executa a geração com timeout
-                result = await asyncio.wait_for(
-                    chain.ainvoke({}), 
-                    timeout=30.0  # 30 segundos timeout
-                )
-                
-                # Valida resultado
-                if not result or not hasattr(result, 'flashcards') or not result.flashcards:
-                    raise ValueError("Resultado vazio ou inválido")
-                
-                # Calcula tempo de geração
-                generation_time = (datetime.now() - start_time).total_seconds() * 1000
-                
-                logger.info(f"✅ {len(result.flashcards)} flashcards gerados com sucesso em {generation_time:.0f}ms")
-                
-                return {
-                    "success": True,
-                    "flashcards": result.flashcards,
-                    "generation_time_ms": int(generation_time),
-                    "model_used": f"{self.provider}/{self.model_name}",
-                    "attempts_made": attempt + 1,
-                    "quantity_requested": original_quantity,
-                    "quantity_generated": len(result.flashcards)
-                }
-                
-            except asyncio.TimeoutError:
-                logger.warning(f"Timeout na tentativa {attempt + 1}")
-                if attempt < max_retries:
-                    await asyncio.sleep(1)  # Wait before retry
-                    continue
-                
-            except Exception as e:
-                error_msg = str(e)
-                logger.warning(f"Erro na tentativa {attempt + 1}: {error_msg}")
-                
-                # Se é erro de token limit, tenta com menos flashcards
-                if "length limit" in error_msg.lower() or "token" in error_msg.lower():
-                    if quantity > 3 and attempt < max_retries:
-                        quantity = max(3, quantity // 2)
-                        logger.info(f"Reduzindo quantidade para {quantity} devido a limite de tokens")
-                        await asyncio.sleep(0.5)
-                        continue
-                
-                # Para outros erros, tenta novamente se não é a última tentativa
-                if attempt < max_retries:
-                    await asyncio.sleep(1)
-                    continue
-                
-                # Se chegou aqui, falhou em todas as tentativas
-                generation_time = (datetime.now() - start_time).total_seconds() * 1000
-                return {
-                    "success": False,
-                    "error": f"Falha após {max_retries + 1} tentativas: {error_msg}",
-                    "flashcards": [],
-                    "generation_time_ms": int(generation_time),
-                    "attempts_made": attempt + 1
-                }
-        
-        # Fallback final - nunca deveria chegar aqui
-        return {
-            "success": False,
-            "error": "Erro inesperado no sistema de retry",
-            "flashcards": [],
-            "generation_time_ms": 0
-        }
-    
-    def get_model_info(self) -> dict:
-        """Retorna informações sobre o modelo configurado"""
-        return {
-            "provider": self.provider,
-            "model": self.model_name,
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-            "status": "configured" if self.llm else "error"
-        }
 
 
-
-# Instância global do serviço
-ai_service = AIServiceAdvanced()
+ai_service = AIService()

@@ -1,31 +1,17 @@
-"""
-Modelos Pydantic para a API de Flashcards
-
-Este módulo contém todos os modelos de dados utilizados na API:
-- FlashcardAdvanced: Modelo individual de flashcard
-- FlashcardsResponseAdvanced: Resposta com múltiplos flashcards
-- FlashcardAdvancedGenerationRequest: Dados de entrada para gerar flashcards
-- ErrorResponse: Modelo para respostas de erro
-- Enums: DifficultyLevel, LanguageCode
-"""
-
 from .flashcard import (
-    FlashcardAdvanced,
-    FlashcardsResponseAdvanced,
-    DifficultyLevel
+    Flashcard,
+    FlashcardsResponse,
 )
-
 from .request import (
-    FlashcardAdvancedGenerationRequest,
+    FlashcardRequest,
     ErrorResponse,
     LanguageCode
 )
 
 __all__ = [
-    "FlashcardAdvanced",
-    "FlashcardsResponseAdvanced", 
-    "FlashcardAdvancedGenerationRequest",
+    "Flashcard",
+    "FlashcardsResponse", 
+    "FlashcardRequest",
     "ErrorResponse",
-    "DifficultyLevel",
-    "LanguageCode"
+    "LanguageCode",
 ]

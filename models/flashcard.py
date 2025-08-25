@@ -1,16 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from enum import Enum
 
-class DifficultyLevel(str, Enum):
-    """Níveis de dificuldade para os flashcards"""
-    BEGINNER = "beginner"
-    INTERMEDIATE = "intermediate"
-    ADVANCED = "advanced"
-
-class FlashcardAdvanced(BaseModel):
-    """Modelo para um flashcard individual"""
-    
+class Flashcard(BaseModel):  
     front: str = Field(
         ..., 
         description="Pergunta ou conceito no front do flashcard",
@@ -25,8 +16,7 @@ class FlashcardAdvanced(BaseModel):
         max_length=500
     )
     
-    difficulty: DifficultyLevel = Field(
-        default=DifficultyLevel.INTERMEDIATE,
+    difficulty: str = Field(
         description="Nível de dificuldade do flashcard"
     )
     
@@ -36,9 +26,9 @@ class FlashcardAdvanced(BaseModel):
         max_length=300
     )
 
-class FlashcardsResponseAdvanced(BaseModel):
-    """Modelo para a resposta contendo múltiplos flashcards"""
-    
+
+
+class FlashcardsResponse(BaseModel):
     topic: str = Field(
         ..., 
         description="Tópico dos flashcards gerados"
@@ -49,7 +39,7 @@ class FlashcardsResponseAdvanced(BaseModel):
         description="Número total de flashcards gerados"
     )
     
-    flashcards: List[FlashcardAdvanced] = Field(
+    flashcards: List[Flashcard] = Field(
         ..., 
         description="Lista de flashcards gerados"
     )
@@ -68,15 +58,12 @@ class FlashcardsResponseAdvanced(BaseModel):
                     {
                         "front": "O que é Fiber Architecture no React?",
                         "back": "Fiber é a nova arquitetura de reconciliação do React que permite renderização incremental e priorização de atualizações.",
-                        "difficulty": "intermediate",
-                        "tags": ["react", "fiber", "architecture"],
-                        "explanation": "Introduzido no React 16, permite melhor performance em aplicações complexas."
+                        "difficulty": "fácil",
+                        "suggestion": "Introduzido no React 16, permite melhor performance em aplicações complexas."
                     },
                     {
                         "front": "Qual é o principal benefício do Fiber?",
                         "back": "Permite que o React pause, aborte ou reutilize trabalho, resultando em melhor experiência do usuário.",
-                        "difficulty": "intermediate",
-                        "tags": ["react", "performance", "fiber"]
                     }
                 ],
                 "generation_time_ms": 1500
